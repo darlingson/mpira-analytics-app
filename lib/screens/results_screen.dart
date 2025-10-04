@@ -10,9 +10,14 @@ class ResultsScreen extends StatefulWidget {
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
-  List<Matches> matches = [];
+  List<Matches> allMatches = [];
+  List<Matches> filteredMatches = [];
+
   bool isLoading = true;
   String? error;
+
+  String? selectedSeason;
+  String? selectedTeam;
 
   @override
   void initState() {
@@ -26,17 +31,20 @@ class _ResultsScreenState extends State<ResultsScreen> {
         isLoading = true;
         error = null;
       });
-      
+
       final response = await http.get(
         Uri.parse('https://mpira-analytics.vercel.app/api/matches'),
       );
 
       if (response.statusCode == 200) {
         final matchesList = matchesFromJson(response.body);
+
         setState(() {
-          matches = matchesList;
+          allMatches = matchesList;
           isLoading = false;
         });
+
+        _applyFilters();
       } else {
         setState(() {
           error = 'Failed to load matches: ${response.statusCode}';
@@ -51,8 +59,46 @@ class _ResultsScreenState extends State<ResultsScreen> {
     }
   }
 
+  void _applyFilters() {
+    List<Matches> temp = List.from(allMatches);
+
+    if (selectedSeason != null && selectedSeason!.isNotEmpty) {
+      temp = temp.where((m) => m.season == selectedSeason).toList();
+    }
+
+    if (selectedTeam != null && selectedTeam!.isNotEmpty) {
+      temp = temp
+          .where(
+            (m) =>
+                m.homeTeam.toLowerCase().contains(selectedTeam!.toLowerCase()) ||
+                m.awayTeam.toLowerCase().contains(selectedTeam!.toLowerCase()),
+          )
+          .toList();
+    }
+
+    setState(() {
+      filteredMatches = temp;
+    });
+  }
+
+  List<String> _getSeasons() {
+    return allMatches.map((m) => m.season).toSet().toList()..sort();
+  }
+
+  List<String> _getTeams() {
+    final teams = <String>{};
+    for (var match in allMatches) {
+      teams.add(match.homeTeam);
+      teams.add(match.awayTeam);
+    }
+    return teams.toList()..sort();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final seasons = _getSeasons();
+    final teams = _getTeams();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Match Results'),
@@ -67,58 +113,130 @@ class _ResultsScreenState extends State<ResultsScreen> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : error != null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+              ? _buildError()
+              : RefreshIndicator(
+                  onRefresh: fetchMatches,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16.0),
                     children: [
-                      const Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: Colors.red,
+                      // Filters
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Season Dropdown
+                          DropdownButtonFormField<String>(
+                            value: selectedSeason,
+                            decoration: const InputDecoration(
+                              labelText: 'Select Season',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: seasons
+                                .map(
+                                  (season) => DropdownMenuItem(
+                                    value: season,
+                                    child: Text(season),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                selectedSeason = value;
+                              });
+                              _applyFilters();
+                            },
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Team Dropdown
+                          DropdownButtonFormField<String>(
+                            value: selectedTeam,
+                            decoration: const InputDecoration(
+                              labelText: 'Select Team',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: teams
+                                .map(
+                                  (team) => DropdownMenuItem(
+                                    value: team,
+                                    child: Text(team),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              setState(() {
+                                selectedTeam = value;
+                              });
+                              _applyFilters();
+                            },
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Clear Filters
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  selectedSeason = null;
+                                  selectedTeam = null;
+                                  filteredMatches = allMatches;
+                                });
+                              },
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Clear Filters'),
+                            ),
+                          ),
+                          const Divider(),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.red,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: fetchMatches,
-                        child: const Text('Retry'),
-                      ),
+
+                      // Match List
+                      if (filteredMatches.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 64.0),
+                          child: Center(
+                            child: Text(
+                              'No matches found',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        )
+                      else
+                        ...filteredMatches
+                            .map((match) => _buildMatchCard(match))
+                            .toList(),
                     ],
                   ),
-                )
-              : matches.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No matches found',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: fetchMatches,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(16.0),
-                        itemCount: matches.length,
-                        itemBuilder: (context, index) {
-                          final match = matches[index];
-                          return _buildMatchCard(match);
-                        },
-                      ),
-                    ),
+                ),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 64, color: Colors.red),
+          const SizedBox(height: 16),
+          Text(
+            error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16, color: Colors.red),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: fetchMatches,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildMatchCard(Matches match) {
-    // Determine if the match is live or finished
     final isLive = match.finalScore.toUpperCase() == 'LIVE';
     final scoreColor = isLive ? Colors.red : Colors.black87;
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12.0),
       elevation: 2,
@@ -151,15 +269,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ),
                 Text(
                   match.matchDate,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            
+
             // Teams and Score
             Row(
               children: [
@@ -232,8 +347,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 ),
               ],
             ),
-            
-            // VS indicator in the middle
+
             const SizedBox(height: 8),
             const Center(
               child: Text(
