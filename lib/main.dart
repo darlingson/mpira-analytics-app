@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mpira_analytics_app/screens/competitions_screen.dart';
+import 'package:mpira_analytics_app/screens/dashboard_screen.dart';
 import 'screens/results_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/settings_screen.dart';
@@ -36,6 +37,7 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = [
+    const DashboardScreen(),
     const CompetitionsScreen(),
     const ResultsScreen(),
     const AnalyticsScreen(),
@@ -55,6 +57,10 @@ class _MainScreenState extends State<MainScreen> {
           });
         },
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.sports_soccer),
             label: 'Competitions',
