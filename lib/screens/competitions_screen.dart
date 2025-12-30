@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mpira_analytics_app/models/competitions_home.dart';
+import '../api_client.dart';
 
 class CompetitionsScreen extends StatefulWidget {
   const CompetitionsScreen({super.key});
@@ -8,217 +10,204 @@ class CompetitionsScreen extends StatefulWidget {
 }
 
 class _CompetitionsScreenState extends State<CompetitionsScreen> {
-  int _selectedIndex = 0; // 0: Leagues, 1: Tournaments, 2: International
-  bool _showGoals = true; // true: Goals, false: Assists
+  int _selectedIndex = 0;
+  bool _showGoals = true;
+  late Future<CompetitionsHome> _competitionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _competitionsFuture = ApiClient().getCompetitionsHomepage();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0A1626),
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 20,
-                    backgroundImage: NetworkImage(''), // placeholder
-                    backgroundColor: Colors.grey,
-                    child: Icon(Icons.person, color: Colors.white),
-                  ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Competitions',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+        child: FutureBuilder<CompetitionsHome>(
+          future: _competitionsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(color: Colors.blue),
+              );
+            } else if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  'Error: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              );
+            } else if (!snapshot.hasData || snapshot.data!.data.isEmpty) {
+              return const Center(
+                child: Text(
+                  'No competitions found',
+                  style: TextStyle(color: Colors.white),
+                ),
+              );
+            }
+
+            final competitions = snapshot.data!.data;
+            final selectedComp =
+                competitions[_selectedIndex % competitions.length];
+            final scorers = selectedComp.topScorers;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(),
+                _buildSearchBar(),
+                const SizedBox(height: 24),
+
+                // Dynamic Tabs from API
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: competitions.asMap().entries.map((entry) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _buildTab(entry.value.name, entry.key),
+                        );
+                      }).toList(),
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                    onPressed: () {},
-                  ),
-                ],
-              ),
-            ),
-
-            // Search bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                decoration: InputDecoration(
-                  hintText: 'Search leagues, teams, or players...',
-                  hintStyle: const TextStyle(color: Colors.grey),
-                  prefixIcon: const Icon(Icons.search, color: Colors.grey),
-                  filled: true,
-                  fillColor: const Color(0xFF1A2639),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(30),
-                    borderSide: BorderSide.none,
-                  ),
                 ),
-              ),
-            ),
 
-            const SizedBox(height: 24),
+                const SizedBox(height: 24),
 
-            // Tabs
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  _buildTab('Leagues', 0),
-                  const SizedBox(width: 12),
-                  _buildTab('Tournaments', 1),
-                  const SizedBox(width: 12),
-                  _buildTab('International', 2),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Scrollable content
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  // Featured
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
-                      const Text(
-                        'Featured',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {},
-                        child: const Text('View All', style: TextStyle(color: Colors.blue)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildFeaturedCard(
-                          badgeColor: Colors.brown,
-                          title: 'Premier League',
-                          subtitle: 'England',
-                          status: 'Live Matches: 2',
-                          hasLiveDot: true,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildFeaturedCard(
-                          badgeColor: Colors.teal,
-                          title: 'La Liga',
-                          subtitle: 'Spain',
-                          status: 'Next: Today 20:00',
-                          hasNextBadge: true,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  // Highest Goal Scorers section with tabs
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Highest Goal Scorers',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
+                      // Featured Section
+                      _buildSectionHeader('Featured'),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
-                          GestureDetector(
-                            onTap: () => setState(() => _showGoals = true),
-                            child: Text(
-                              'Goals',
-                              style: TextStyle(
-                                color: _showGoals ? Colors.white : Colors.grey,
-                                fontWeight: _showGoals ? FontWeight.bold : FontWeight.normal,
-                              ),
+                          Expanded(
+                            child: _buildFeaturedCard(
+                              badgeColor: Colors.brown,
+                              title: competitions[0].name,
+                              subtitle: competitions[0].season,
                             ),
                           ),
-                          const SizedBox(width: 32),
-                          GestureDetector(
-                            onTap: () => setState(() => _showGoals = false),
-                            child: Text(
-                              'Assists',
-                              style: TextStyle(
-                                color: !_showGoals ? Colors.white : Colors.grey,
-                                fontWeight: !_showGoals ? FontWeight.bold : FontWeight.normal,
+                          const SizedBox(width: 16),
+                          if (competitions.length > 1)
+                            Expanded(
+                              child: _buildFeaturedCard(
+                                badgeColor: Colors.teal,
+                                title: competitions[1].name,
+                                subtitle: competitions[1].season,
                               ),
                             ),
-                          ),
                         ],
                       ),
+
+                      const SizedBox(height: 32),
+
+                      // Scorers Header
+                      _buildScorerHeader(),
+                      const SizedBox(height: 16),
+
+                      // Top 2 Scorers Cards
+                      if (scorers.isNotEmpty)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTopScorerCard(
+                                rank: 1,
+                                name: scorers[0].playerName,
+                                team: scorers[0].teamName?.toString() ?? "N/A",
+                                value: scorers[0].goals,
+                                badgeColor: Colors.amber,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            if (scorers.length > 1)
+                              Expanded(
+                                child: _buildTopScorerCard(
+                                  rank: 2,
+                                  name: scorers[1].playerName,
+                                  team:
+                                      scorers[1].teamName?.toString() ?? "N/A",
+                                  value: scorers[1].goals,
+                                  badgeColor: Colors.red,
+                                ),
+                              ),
+                          ],
+                        ),
+
+                      const SizedBox(height: 24),
+                      if (scorers.length > 2)
+                        for (var i = 2; i < scorers.length; i++)
+                          _buildListScorer(
+                            rank: i + 1,
+                            name: scorers[i].playerName,
+                            team: scorers[i].teamName?.toString() ?? "N/A",
+                            value: scorers[i].goals,
+                          ),
+
+                      const SizedBox(height: 40),
                     ],
                   ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-                  const SizedBox(height: 16),
+  // --- UI COMPONENTS ---
 
-                  // Top 2 as special cards
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTopScorerCard(
-                          rank: 1,
-                          name: 'Erling Haaland',
-                          team: 'Man City',
-                          value: 14,
-                          rating: '7.21',
-                          xG: '9.90',
-                          apps: 14,
-                          badgeColor: Colors.amber,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildTopScorerCard(
-                          rank: 2,
-                          name: 'Mohamed Salah',
-                          team: 'Liverpool',
-                          value: _showGoals ? 10 : 10, // same in image for both
-                          rating: '8.09',
-                          xG: '6.90',
-                          apps: 15,
-                          badgeColor: Colors.red,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Rest of the list (3rd onwards)
-                  _buildListScorer(rank: 3, name: 'Heung-Min Son', team: 'Tottenham', value: 9),
-                  _buildListScorer(rank: 4, name: 'Jarrod Bowen', team: 'West Ham', value: 9),
-
-                  const SizedBox(height: 40),
-                ],
-              ),
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 20,
+            backgroundColor: Colors.grey,
+            child: Icon(Icons.person, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          const Text(
+            'Competitions',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
-          ],
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+            onPressed: () {},
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: TextField(
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: 'Search leagues, teams, or players...',
+          hintStyle: const TextStyle(color: Colors.grey),
+          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+          filled: true,
+          fillColor: const Color(0xFF1A2639),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(30),
+            borderSide: BorderSide.none,
+          ),
         ),
       ),
     );
@@ -245,13 +234,30 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
     );
   }
 
+  Widget _buildSectionHeader(String title) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        TextButton(
+          onPressed: () {},
+          child: const Text('View All', style: TextStyle(color: Colors.blue)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildFeaturedCard({
     required Color badgeColor,
     required String title,
     required String subtitle,
-    required String status,
-    bool hasLiveDot = false,
-    bool hasNextBadge = false,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -262,47 +268,72 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: badgeColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              if (hasNextBadge) ...[
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.teal,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text('NEXT', style: TextStyle(fontSize: 12, color: Colors.white)),
-                ),
-              ],
-            ],
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: badgeColor,
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           const SizedBox(height: 16),
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-          Text(subtitle, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              if (hasLiveDot)
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-                ),
-              if (hasLiveDot) const SizedBox(width: 8),
-              Text(status, style: const TextStyle(color: Colors.blue)),
-            ],
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            subtitle,
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildScorerHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Highest Goal Scorers',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Row(
+          children: [
+            GestureDetector(
+              onTap: () => setState(() => _showGoals = true),
+              child: Text(
+                'Goals',
+                style: TextStyle(
+                  color: _showGoals ? Colors.white : Colors.grey,
+                  fontWeight: _showGoals ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            const SizedBox(width: 24),
+            GestureDetector(
+              onTap: () => setState(() => _showGoals = false),
+              child: Text(
+                'Assists',
+                style: TextStyle(
+                  color: !_showGoals ? Colors.white : Colors.grey,
+                  fontWeight: !_showGoals ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -311,9 +342,6 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
     required String name,
     required String team,
     required int value,
-    required String rating,
-    required String xG,
-    required int apps,
     required Color badgeColor,
   }) {
     return Container(
@@ -326,30 +354,42 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               CircleAvatar(
-                radius: 28,
+                radius: 24,
                 backgroundColor: badgeColor,
-                child: Text('$rank', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+                child: Text(
+                  '$rank',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
               ),
-              const SizedBox(width: 16),
               Text(
                 '$value',
-                style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: Colors.white),
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
-          Text(team, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 8),
-          Text('$rating xG $xG • $apps Apps', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: double.parse(rating.replaceAll('/', '')) / 10, // rough approximation
-            backgroundColor: Colors.grey.shade800,
-            color: Colors.blue,
+          Text(
+            name,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 14,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
+          Text(team, style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ],
       ),
     );
@@ -365,26 +405,45 @@ class _CompetitionsScreenState extends State<CompetitionsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Text('$rank', style: const TextStyle(color: Colors.grey, fontSize: 18)),
-          const SizedBox(width: 16),
+          SizedBox(
+            width: 25,
+            child: Text(
+              '$rank',
+              style: const TextStyle(color: Colors.grey, fontSize: 16),
+            ),
+          ),
+          const SizedBox(width: 8),
           CircleAvatar(
-            radius: 20,
-            backgroundColor: Colors.grey.shade700,
-            child: Text('$rank', style: const TextStyle(color: Colors.white)),
+            radius: 18,
+            backgroundColor: Colors.grey.shade800,
+            child: const Icon(Icons.person, size: 20, color: Colors.white70),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                Text(team, style: const TextStyle(color: Colors.grey)),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  team,
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
               ],
             ),
           ),
           Text(
             '$value',
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
         ],
       ),

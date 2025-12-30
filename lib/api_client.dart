@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:mpira_analytics_app/models/competitions_home.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -21,14 +22,14 @@ class ApiClient {
     _dio.interceptors.add(LogInterceptor(responseBody: true));
   }
 
-  // Define your endpoints as methods
-  Future<Response> getCompetitionsHomepage() async {
-    try {
-      return await _dio.get('/competitions');
-    } catch (e) {
-      rethrow;
-    }
+  Future<CompetitionsHome> getCompetitionsHomepage() async {
+  try {
+    final response = await _dio.get('/competitions');
+    return CompetitionsHome.fromJson(response.data);
+  } catch (e) {
+    rethrow;
   }
+}
 
   Future<Response> getCompetitionDetails(int id) async {
     return await _dio.get('/users/$id');
