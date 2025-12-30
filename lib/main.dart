@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mpira_analytics_app/screens/competitions_screen.dart';
 import 'package:mpira_analytics_app/screens/dashboard_screen.dart';
+import 'package:mpira_analytics_app/screens/matches_screen.dart';
 import 'screens/results_screen.dart';
 void main() {
   runApp(const MyApp());
@@ -36,7 +37,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const CompetitionsScreen(),
-    const ResultsScreen()
+    const MatchesScreen()
   ];
 
   @override
