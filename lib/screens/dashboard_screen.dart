@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import '../models/overview_models.dart';
 import '../api_client.dart';
 
@@ -21,7 +22,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _loadData() {
-    _overviewFuture = ApiClient().getOverview();
+    setState(() {
+      _overviewFuture = ApiClient().getOverview();
+    });
   }
 
   @override
@@ -33,41 +36,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
           future: _overviewFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(color: Colors.blue),
-              );
+              return const Center(child: CircularProgressIndicator(color: Colors.blue));
             }
+
             if (snapshot.hasError) {
-              return _buildErrorState(snapshot.error.toString());
+              return _buildErrorState(snapshot.error);
             }
+
             final data = snapshot.data;
-            if (data == null)
-              return const Center(
-                child: Text("No Data", style: TextStyle(color: Colors.white)),
-              );
+            if (data == null) {
+              return const Center(child: Text("No Data Available", style: TextStyle(color: Colors.white)));
+            }
 
             return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(),
                 _buildLeagueTabs(),
+                const SizedBox(height: 24),
                 Expanded(
                   child: RefreshIndicator(
-                    onRefresh: () async => setState(() => _loadData()),
+                    onRefresh: () async => _loadData(),
                     child: ListView(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       children: [
+                        _buildSeasonOverviewCard(data.goals),
+                        const SizedBox(height: 32),
+                        _buildSectionHeader('League Pulse'),
+                        const SizedBox(height: 16),
+                        _buildPulseGrid(data.leaguePulse),
+                        const SizedBox(height: 32),
+                        _buildSectionHeader('Late Collapse Risks', hasViewAll: true),
+                        const SizedBox(height: 12),
+                        ...data.lateCollapses.take(2).map((c) => _buildCollapseCard(c)).toList(),
                         const SizedBox(height: 24),
-                        _buildSeasonOverview(data.goals),
+                        _buildSectionHeader('Comeback Kings'),
+                        const Text('Teams scoring the most when trailing', style: TextStyle(color: Colors.grey)),
+                        const SizedBox(height: 16),
+                        _buildComebackRow(data.comebackKings),
                         const SizedBox(height: 32),
-                        _buildPulseSection(data.leaguePulse),
+                        _buildSectionHeader('Attack Patterns'),
+                        const SizedBox(height: 16),
+                        ...data.attackPatterns.take(2).map((p) => _buildAttackPatternCard(p)).toList(),
                         const SizedBox(height: 32),
-                        _buildCollapseSection(data.lateCollapses),
-                        const SizedBox(height: 24),
-                        _buildComebackSection(data.comebackKings),
-                        const SizedBox(height: 32),
-                        _buildAttackPatternSection(data.attackPatterns),
-                        const SizedBox(height: 32),
-                        _buildClutchSection(data.clutchPlayers),
+                        _buildSectionHeader('Clutch Involvement'),
+                        const Text('Goal events in 75\'+ minutes.', style: TextStyle(color: Colors.grey)),
+                        const SizedBox(height: 16),
+                        _buildClutchRow(data.clutchPlayers),
                         const SizedBox(height: 40),
                       ],
                     ),
@@ -81,106 +96,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- UI SECTION BUILDERS ---
+  // --- RESTORED UI COMPONENTS ---
+
+  Widget _buildSectionHeader(String title, {bool hasViewAll = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+        if (hasViewAll)
+          TextButton(onPressed: () {}, child: const Text('View All', style: TextStyle(color: Colors.blue))),
+      ],
+    );
+  }
 
   Widget _buildHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Row(
         children: [
-          const CircleAvatar(
-            backgroundColor: Colors.grey,
-            child: Icon(Icons.person, color: Colors.white),
-          ),
+          const CircleAvatar(radius: 20, backgroundColor: Colors.grey, child: Icon(Icons.person, color: Colors.white)),
           const SizedBox(width: 12),
-          const Text(
-            'Overview',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
+          const Text('Overview', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-            onPressed: () {},
-          ),
+          IconButton(icon: const Icon(Icons.notifications_outlined, color: Colors.white), onPressed: () {}),
         ],
       ),
     );
   }
 
   Widget _buildLeagueTabs() {
-    return SizedBox(
-      height: 45,
-      child: ListView.builder(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _leagues.length,
-        itemBuilder: (context, index) {
-          bool isSelected = _selectedLeagueIndex == index;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedLeagueIndex = index),
-            child: Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              decoration: BoxDecoration(
-                color: isSelected ? Colors.blue : Colors.transparent,
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: Text(
-                _leagues[index],
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.grey,
+        child: Row(
+          children: _leagues.asMap().entries.map((entry) {
+            bool isSelected = _selectedLeagueIndex == entry.key;
+            return GestureDetector(
+              onTap: () => setState(() => _selectedLeagueIndex = entry.key),
+              child: Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.blue : Colors.transparent,
+                  borderRadius: BorderRadius.circular(30),
                 ),
+                child: Text(entry.value, style: TextStyle(color: isSelected ? Colors.white : Colors.grey, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
               ),
-            ),
-          );
-        },
+            );
+          }).toList(),
+        ),
       ),
     );
   }
 
-  Widget _buildSeasonOverview(Goals goals) {
-    final bool isPositive = !goals.percentageChange.startsWith('-');
+  Widget _buildSeasonOverviewCard(Goals goals) {
+    bool isPositive = !goals.percentageChange.startsWith('-');
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)],
-        ),
+        gradient: const LinearGradient(colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6)], begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Season Overview',
-            style: TextStyle(color: Colors.white70),
-          ),
-          Text(
-            '${goals.currentSeasonTotal}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 48,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          const Text('Season Overview', style: TextStyle(color: Colors.white70, fontSize: 14)),
+          const SizedBox(height: 12),
+          Text('${goals.currentSeasonTotal}', style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold)),
+          const Text('Total Goals Scored', style: TextStyle(color: Colors.white, fontSize: 16)),
+          const SizedBox(height: 16),
           Row(
             children: [
-              Icon(
-                isPositive ? Icons.trending_up : Icons.trending_down,
-                color: isPositive ? Colors.greenAccent : Colors.redAccent,
-              ),
+              Icon(isPositive ? Icons.trending_up : Icons.trending_down, color: isPositive ? Colors.green : Colors.redAccent, size: 20),
               const SizedBox(width: 8),
-              Text(
-                goals.percentageChange,
-                style: TextStyle(
-                  color: isPositive ? Colors.greenAccent : Colors.redAccent,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              Text('Vs last season', style: const TextStyle(color: Colors.white70)),
+              const Spacer(),
+              Text(goals.percentageChange, style: TextStyle(color: isPositive ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold)),
             ],
           ),
         ],
@@ -188,7 +180,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildPulseSection(LeaguePulse pulse) {
+  Widget _buildPulseGrid(LeaguePulse pulse) {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -197,221 +189,157 @@ class _DashboardScreenState extends State<DashboardScreen> {
       crossAxisSpacing: 16,
       childAspectRatio: 1.6,
       children: [
-        _buildPulseCard(
-          'AVG CARDS',
-          '${pulse.avgCardsPerMatch}',
-          Icons.credit_card,
-          Colors.orange,
-        ),
-        _buildPulseCard(
-          'HOME WIN %',
-          '${pulse.homeWinPercentage}%',
-          Icons.home,
-          Colors.blue,
-        ),
-        _buildPulseCard(
-          'GOALS/90M',
-          '${pulse.avgGoalsPerMatch}',
-          Icons.sports_soccer,
-          Colors.green,
-        ),
-        _buildPulseCard(
-          'DRAWS',
-          '${pulse.totalDraws}',
-          Icons.equalizer,
-          Colors.purple,
-        ),
+        _buildPulseCard('AVG CARDS', '${pulse.avgCardsPerMatch}', 'per match', Icons.credit_card, Colors.orange),
+        _buildPulseCard('HOME WIN %', '${pulse.homeWinPercentage}%', '', Icons.home, Colors.blue),
+        _buildPulseCard('GOALS/90M', '${pulse.avgGoalsPerMatch}', 'League avg', Icons.sports_soccer, Colors.green),
+        _buildPulseCard('DRAWS', '${pulse.totalDraws}', 'Total season', Icons.equalizer, Colors.purple),
       ],
     );
   }
 
-  Widget _buildPulseCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _buildPulseCard(String title, String value, String subtitle, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF162133),
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: BoxDecoration(color: const Color(0xFF162133), borderRadius: BorderRadius.circular(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: color, size: 24),
-          const Spacer(),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Icon(icon, color: color, size: 28),
+          const SizedBox(height: 12),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ],
       ),
     );
   }
 
-  Widget _buildCollapseSection(List<LateCollapse> collapses) {
-    return Column(
-      children: collapses
-          .take(2)
-          .map(
-            (item) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF162133),
-                borderRadius: BorderRadius.circular(16),
+  Widget _buildCollapseCard(LateCollapse collapse) {
+    double riskLevel = (double.parse(collapse.collapseCount) / 10).clamp(0.0, 1.0); // Mock risk calculation
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFF162133), borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(radius: 16, backgroundColor: Colors.blue, child: Text(collapse.teamName[0], style: const TextStyle(color: Colors.white))),
+              const SizedBox(width: 12),
+              Text(collapse.teamName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(20)),
+                child: Text('${collapse.collapseCount} Collapses', style: const TextStyle(color: Colors.white, fontSize: 12)),
               ),
-              child: Row(
-                children: [
-                  CircleAvatar(radius: 14, child: Text(item.teamName[0])),
-                  const SizedBox(width: 12),
-                  Text(
-                    item.teamName,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${item.collapseCount} Collapses',
-                    style: const TextStyle(color: Colors.orangeAccent),
-                  ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(value: riskLevel, minHeight: 8, backgroundColor: Colors.grey.shade800, color: Colors.orange),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text('0\'', style: TextStyle(color: Colors.grey, fontSize: 10)),
+              Text('45\'', style: TextStyle(color: Colors.grey, fontSize: 10)),
+              Text('75\'+', style: TextStyle(color: Colors.grey, fontSize: 10)),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildComebackSection(List<ComebackKing> kings) {
+  Widget _buildComebackRow(List<ComebackKing> kings) {
     return Row(
-      children: kings
-          .take(2)
-          .map(
-            (king) => Expanded(
-              child: Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF162133),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      king.teamName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      '${(int.tryParse(king.comebackWins) ?? 0) * 3} pts',
-                      style: const TextStyle(color: Colors.greenAccent),
-                    ),
-                    const Text(
-                      'Recovered',
-                      style: TextStyle(color: Colors.grey, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _buildAttackPatternSection(List<AttackPattern> patterns) {
-    return Column(
-      children: patterns
-          .take(2)
-          .map(
-            (p) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF162133),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    p.patternType == PatternType.SINGLE_POINT_OF_FAILURE
-                        ? Icons.warning
-                        : Icons.hub,
-                    color: Colors.blue,
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          p.teamName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '${p.uniqueScorers} unique scorers',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _buildClutchSection(List<ClutchPlayer> players) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: players
-          .take(3)
-          .map(
-            (player) => Column(
+      children: kings.take(2).map((king) {
+        return Expanded(
+          child: Container(
+            margin: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: const Color(0xFF162133), borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(radius: 25, child: Text(player.playerName[0])),
+                Text(king.teamName.substring(0, 3).toUpperCase(), style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 18)),
                 const SizedBox(height: 8),
-                Text(
-                  player.playerName,
-                  style: const TextStyle(color: Colors.white, fontSize: 10),
-                ),
-                Text(
-                  '${player.clutchGoals} Goals',
-                  style: const TextStyle(
-                    color: Colors.blue,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                Text(king.teamName, style: const TextStyle(color: Colors.white), overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4),
+                Text('${king.comebackWins} Wins', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                const Text('Recovered', style: TextStyle(color: Colors.green, fontSize: 12)),
               ],
             ),
-          )
-          .toList(),
+          ),
+        );
+      }).toList(),
     );
   }
 
-  Widget _buildErrorState(String error) {
+  Widget _buildAttackPatternCard(AttackPattern pattern) {
+    bool isWarning = pattern.patternType == PatternType.SINGLE_POINT_OF_FAILURE;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFF162133), borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        children: [
+          Icon(isWarning ? Icons.warning_amber : Icons.group, color: isWarning ? Colors.orange : Colors.blue, size: 32),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(pattern.patternType.toString().split('.').last.replaceAll('_', ' '), style: TextStyle(color: isWarning ? Colors.orange : Colors.blue, fontWeight: FontWeight.bold, fontSize: 12)),
+                Text(pattern.teamName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text('${pattern.uniqueScorers} unique scorers', style: const TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+          if (isWarning)
+            SizedBox(
+              width: 50, height: 50,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(value: 0.8, strokeWidth: 4, backgroundColor: Colors.grey.shade800, color: Colors.orange),
+                  const Text('80%', style: TextStyle(color: Colors.white, fontSize: 10)),
+                ],
+              ),
+            )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClutchRow(List<ClutchPlayer> players) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: players.take(3).map((player) {
+        return Column(
+          children: [
+            CircleAvatar(radius: 30, backgroundColor: Colors.blueGrey, child: Text(player.playerName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            const SizedBox(height: 8),
+            Text(player.playerName.split(' ').last, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 12)),
+            Text('${player.clutchGoals} Goals', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildErrorState(Object? error) {
     return Center(
-      child: Text(
-        'Error: $error',
-        style: const TextStyle(color: Colors.redAccent),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+          const SizedBox(height: 16),
+          Text(error is DioException ? "Server Timeout. Retrying..." : "Error loading data", style: const TextStyle(color: Colors.white)),
+          TextButton(onPressed: _loadData, child: const Text("Retry")),
+        ],
       ),
     );
   }
