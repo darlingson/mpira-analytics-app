@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:mpira_analytics_app/models/competitions_home.dart';
+import 'package:mpira_analytics_app/models/overview_models.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -11,8 +12,8 @@ class ApiClient {
     _dio = Dio(
       BaseOptions(
         baseUrl: 'https://mpira-metrics-api.vercel.app/api/v1',
-        connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 3),
+        connectTimeout: const Duration(seconds: 15), 
+        receiveTimeout: const Duration(seconds: 15),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -35,7 +36,17 @@ class ApiClient {
     return await _dio.get('/users/$id');
   }
 
-  Future<Response> getOverview() async {
-    return await _dio.get('/overview');
+Future<Overview?> getOverview() async {
+    try {
+      final response = await _dio.get('/overview');
+      
+      if (response.statusCode == 200) {
+        return Overview.fromJson(response.data);
+      }
+      return null;
+    } catch (e) {
+      print("API Error: $e");
+      rethrow; // Catch this in your FutureBuilder
+    }
   }
 }
