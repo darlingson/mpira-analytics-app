@@ -23,15 +23,19 @@ class ApiClient {
   }
 
   Future<CompetitionsHome> getCompetitionsHomepage() async {
-  try {
-    final response = await _dio.get('/competitions');
-    return CompetitionsHome.fromJson(response.data);
-  } catch (e) {
-    rethrow;
+    try {
+      final response = await _dio.get('/competitions');
+      return CompetitionsHome.fromJson(response.data);
+    } catch (e) {
+      rethrow;
+    }
   }
-}
 
   Future<Response> getCompetitionDetails(int id) async {
     return await _dio.get('/users/$id');
+  }
+
+  Future<Response> getOverview() async {
+    return await _dio.get('/overview');
   }
 }
