@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:mpira_analytics_app/models/matches_response.dart';
+import 'package:mpira_analytics_app/models/competitions.dart';
+import '../api_client.dart';
 
 class MatchesScreen extends StatefulWidget {
   const MatchesScreen({super.key});
@@ -9,9 +12,131 @@ class MatchesScreen extends StatefulWidget {
 
 class _MatchesScreenState extends State<MatchesScreen> {
   String selectedTab = 'Played';
+  final ApiClient _apiClient = ApiClient();
+  List<Datum> competitions = [];
+  List<Match> matches = [];
+  String? selectedSeason;
+  String? selectedCompetition;
+  int currentPage = 1;
+  bool isLoading = true;
+  bool hasMoreMatches = true;
+  Pagination pagination = Pagination(
+    page: 1,
+    limit: 50,
+    total: 0,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      await Future.wait([_loadCompetitions(), _loadMatches()]);
+    } catch (e) {
+      print('Error initializing data: $e');
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadCompetitions() async {
+    try {
+      final competitionsData = await _apiClient.getCompetitions();
+
+      setState(() {
+        competitions = competitionsData.data;
+        // Set default season to latest if available
+        if (competitions.isNotEmpty) {
+          selectedSeason = competitions.first.season;
+        }
+      });
+    } catch (e) {
+      print('Error loading competitions: $e');
+      // Handle error appropriately - show snackbar or retry button
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load competitions: $e')),
+      );
+    }
+  }
+
+  Future<void> _loadMatches({bool refresh = false}) async {
+    if (refresh) {
+      setState(() {
+        currentPage = 1;
+        matches.clear();
+        isLoading = true;
+      });
+    } else {
+      setState(() {
+        isLoading = true;
+      });
+    }
+
+    try {
+      final matchesData = await _apiClient.getSeasonMatches(
+        season: selectedSeason,
+        page: currentPage,
+        limit: 50,
+      );
+
+      setState(() {
+        if (refresh) {
+          matches = matchesData.data.matches;
+        } else {
+          matches.addAll(matchesData.data.matches);
+        }
+        pagination = matchesData.data.pagination;
+        hasMoreMatches = pagination.hasNext;
+        selectedSeason = matchesData.data.season;
+        isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading matches: $e');
+      setState(() {
+        isLoading = false;
+      });
+      // Show user-friendly error
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load matches: $e')));
+    }
+  }
+
+  // Group matches by month and competition for display
+  Map<String, Map<String, List<Match>>> _groupMatchesByMonthAndCompetition() {
+    final Map<String, Map<String, List<Match>>> grouped = {};
+
+    for (final match in matches) {
+      final monthKey = match.monthKey;
+      final competitionName = match.competition.name;
+
+      if (!grouped.containsKey(monthKey)) {
+        grouped[monthKey] = {};
+      }
+
+      if (!grouped[monthKey]!.containsKey(competitionName)) {
+        grouped[monthKey]![competitionName] = [];
+      }
+
+      grouped[monthKey]![competitionName]!.add(match);
+    }
+
+    return grouped;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final groupedMatches = _groupMatchesByMonthAndCompetition();
+    final sortedMonths = groupedMatches.keys.toList()
+      ..sort((a, b) => b.compareTo(a)); // Sort descending
+
     return Scaffold(
       backgroundColor: const Color(0xFF0A1626),
       body: SafeArea(
@@ -32,67 +157,115 @@ class _MatchesScreenState extends State<MatchesScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Icon(Icons.search, color: Colors.white, size: 28),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.search,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                    onPressed: () {
+                      // Implement search functionality
+                    },
+                  ),
                 ],
               ),
             ),
 
-            // Season and Competition
+            // Season and Competition Dropdowns
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
                 children: [
+                  // Season Dropdown
                   Expanded(
-                    child: DropdownButtonHideUnderline(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E2A3B),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '2023/2024',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            Icon(
-                              Icons.keyboard_arrow_down,
-                              color: Colors.white,
-                            ),
-                          ],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E2A3B),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedSeason,
+                          dropdownColor: const Color(0xFF1E2A3B),
+                          style: const TextStyle(color: Colors.white),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white,
+                          ),
+                          items: competitions
+                              .map((comp) => comp.season)
+                              .toSet()
+                              .map(
+                                (season) => DropdownMenuItem(
+                                  value: season,
+                                  child: Text(season),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              selectedSeason = value;
+                              _loadMatches(refresh: true);
+                            });
+                          },
+                          hint: const Text(
+                            'Select Season',
+                            style: TextStyle(color: Colors.grey),
+                          ),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
+                  // Competition Dropdown
                   Expanded(
-                    child: DropdownButtonHideUnderline(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E2A3B),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'All Competitions',
-                              style: TextStyle(color: Colors.white),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E2A3B),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedCompetition,
+                          dropdownColor: const Color(0xFF1E2A3B),
+                          style: const TextStyle(color: Colors.white),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white,
+                          ),
+                          items: [
+                            const DropdownMenuItem(
+                              value: null,
+                              child: Text('All Competitions'),
                             ),
-                            Icon(
-                              Icons.keyboard_arrow_down,
-                              color: Colors.white,
-                            ),
+                            ...competitions
+                                .where((comp) => comp.season == selectedSeason)
+                                .map(
+                                  (comp) => DropdownMenuItem(
+                                    value: comp.name,
+                                    child: Text(comp.name),
+                                  ),
+                                )
+                                .toList(),
                           ],
+                          onChanged: (value) {
+                            setState(() {
+                              selectedCompetition = value;
+                              // Filter matches by competition
+                            });
+                          },
+                          hint: const Text(
+                            'All Competitions',
+                            style: TextStyle(color: Colors.grey),
+                          ),
                         ),
                       ),
                     ),
@@ -143,55 +316,152 @@ class _MatchesScreenState extends State<MatchesScreen> {
 
             const SizedBox(height: 20),
 
-            // Matches List - now grouped by month
+            // Matches List - now with real data
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                children: [
-                  // October 2023
-                  _buildMonthHeader('October 2023'),
+              child: isLoading && matches.isEmpty
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : matches.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No matches found',
+                        style: TextStyle(color: Colors.white, fontSize: 16),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      itemCount: sortedMonths.length + (hasMoreMatches ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == sortedMonths.length) {
+                          // Load more button
+                          return Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: ElevatedButton(
+                              onPressed: isLoading
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        currentPage++;
+                                      });
+                                      _loadMatches();
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1E2A3B),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: isLoading
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Load More',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                            ),
+                          );
+                        }
 
-                  // Premier League under October
-                  _buildLeagueHeader('Premier League', Colors.blue),
-                  _buildMatchRow('OCT 24', 'Man City', '3 - 1', 'Brighton'),
-                  _buildMatchRow('OCT 24', 'Liverpool', '2 - 0', 'Everton'),
-                  _buildMatchRow('OCT 23', 'Tottenham', '2 - 0', 'Fulham'),
+                        final monthKey = sortedMonths[index];
+                        final monthData = groupedMatches[monthKey]!;
+                        final monthName =
+                            monthData.values.first.first.monthName;
 
-                  const SizedBox(height: 20),
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildMonthHeader(monthName),
+                            ...monthData.entries.map((compEntry) {
+                              final competitionName = compEntry.key;
+                              final compMatches = compEntry.value;
+                              final competition = compMatches.first.competition;
 
-                  // Champions League under October
-                  _buildLeagueHeader(
-                    'Champions League',
-                    Colors.purple,
-                    subtitle: 'Group Stage',
-                  ),
-                  _buildMatchRow('OCT 22', 'Sevilla', '1 - 2', 'Arsenal'),
-                  _buildMatchRow(
-                    'OCT 22',
-                    'Real Madrid',
-                    '1 - 0',
-                    'Napoli',
-                    isLive: true,
-                    liveMinute: 34,
-                  ),
-                  _buildMatchRow('OCT 22', 'Benfica', '0 - 1', 'Real Sociedad'),
-
-                  const SizedBox(height: 20),
-
-                  // La Liga under October
-                  _buildLeagueHeader(
-                    'La Liga',
-                    Colors.green,
-                    subtitle: 'Matchday 10',
-                  ),
-                  // No matches shown in screenshot for La Liga, but header is there
-                ],
-              ),
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildLeagueHeader(
+                                    competitionName,
+                                    _getCompetitionColor(competition.type),
+                                    subtitle: competition.type,
+                                  ),
+                                  ...compMatches.map(
+                                    (match) => _buildMatchRow(
+                                      _formatDate(match.date),
+                                      match.homeTeam.name,
+                                      '${match.scoreHome ?? 0} - ${match.scoreAway ?? 0}',
+                                      match.awayTeam.name,
+                                      isLive: _isMatchLive(match.date),
+                                      liveMinute: _getLiveMinute(match.date),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                ],
+                              );
+                            }).toList(),
+                          ],
+                        );
+                      },
+                    ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  // Helper methods remain the same...
+  String _formatDate(DateTime date) {
+    return '${_getMonthAbbrev(date.month)} ${date.day}';
+  }
+
+  String _getMonthAbbrev(int month) {
+    const months = [
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC',
+    ];
+    return months[month - 1];
+  }
+
+  Color _getCompetitionColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'league':
+        return Colors.blue;
+      case 'cup':
+        return Colors.purple;
+      case 'friendly':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  bool _isMatchLive(DateTime matchDate) {
+    final now = DateTime.now();
+    final difference = now.difference(matchDate);
+    return difference.inMinutes >= 0 && difference.inHours < 2;
+  }
+
+  int _getLiveMinute(DateTime matchDate) {
+    final now = DateTime.now();
+    final difference = now.difference(matchDate);
+    return difference.inMinutes;
   }
 
   Widget _buildMonthHeader(String month) {
